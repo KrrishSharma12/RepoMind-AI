@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Tables below are the standard Better Auth core tables.
+// RepoMind's own tables (installations, repositories, ...) get added later.
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  installations Installation[]
+  repositories  Repository[]
+  conversations Conversation[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// A GitHub App installation a user has connected to RepoMind AI.
+// One user can have several (their own account plus organizations), and the
+// same installation can be linked by several users of an organization.
+model Installation {
+  id                   String   @id @default(cuid())
+  githubInstallationId Int
+  accountLogin         String
+  accountType          String
+  accountAvatarUrl     String?
+  repositorySelection  String
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([userId, githubInstallationId])
+  @@index([userId])
+  @@map("installation")
+}
+
+enum IndexingStatus {
+  NOT_INDEXED
+  INDEXING
+  INDEXED
+  FAILED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+// A repository a user has indexed. Each user gets their own copy, so one
+// user can never read another user's code chunks.
+model Repository {
+  id                   String         @id @default(cuid())
+  githubRepoId         String
+  owner                String
+  name                 String
+  fullName             String
+  defaultBranch        String
+  isPrivate            Boolean
+  indexingStatus       IndexingStatus @default(NOT_INDEXED)
+  lastIndexedCommitSha String?
+  lastIndexedAt        DateTime?
+  userId               String
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files                RepositoryFile[]
+  chunks               CodeChunk[]
+  jobs                 IndexingJob[]
+  conversations        Conversation[]
+  reviews              PullRequestReview[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@unique([userId, githubRepoId])
+  @@index([userId])
+  @@map("repository")
+}
+
+model RepositoryFile {
+  id           String      @id @default(cuid())
+  repositoryId String
+  repository   Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  path         String
+  language     String?
+  // The git blob SHA. If it has not changed, the file has not changed.
+  contentHash  String
+  size         Int
+  chunks       CodeChunk[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([repositoryId, path])
+  @@map("repository_file")
+}
+
+model CodeChunk {
+  id               String         @id @default(cuid())
+  repositoryId     String
+  repository       Repository     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  repositoryFileId String
+  file             RepositoryFile @relation(fields: [repositoryFileId], references: [id], onDelete: Cascade)
+  chunkIndex       Int
+  content          String
+  startLine        Int
+  endLine          Int
+  // 768 numbers from Gemini. Written and searched with raw SQL.
+  embedding        Unsupported("vector(768)")?
+  createdAt        DateTime       @default(now())
+
+  @@index([repositoryId])
+  @@index([repositoryFileId])
+  @@map("code_chunk")
+}
+
+model IndexingJob {
+  id             String     @id @default(cuid())
+  repositoryId   String
+  repository     Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  status         JobStatus  @default(QUEUED)
+  phase          String?
+  totalFiles     Int        @default(0)
+  processedFiles Int        @default(0)
+  totalChunks    Int        @default(0)
+  skippedFiles   Int        @default(0)
+  commitSha      String?
+  errorMessage   String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([repositoryId, createdAt])
+  @@map("indexing_job")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+// A chat about one of the user's indexed repositories.
+model Conversation {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repositoryId String
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  title        String
+  messages     Message[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([userId, repositoryId, updatedAt])
+  @@map("conversation")
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String
+  // Which code pieces the answer used: [{ path, startLine, endLine, cited }]
+  sources        Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("message")
+}
+
+enum ReviewStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+// One AI review of one pull request at one commit. The unique key makes a
+// repeated webhook delivery harmless: the same commit is never reviewed twice.
+model PullRequestReview {
+  id             String       @id @default(cuid())
+  repositoryId   String
+  repository     Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  prNumber       Int
+  prTitle        String
+  prUrl          String
+  headSha        String
+  status         ReviewStatus @default(QUEUED)
+  skipReason     String?
+  errorMessage   String?
+  findingsCount  Int          @default(0)
+  commentsPosted Int          @default(0)
+  // [{ path, line, severity, title, explanation, suggestion, confidence }]
+  findings       Json?
+  usedContext    Boolean      @default(false)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([repositoryId, prNumber, headSha])
+  @@index([repositoryId, createdAt])
+  @@map("pull_request_review")
+}
