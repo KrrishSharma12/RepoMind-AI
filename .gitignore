@@ -58,3 +58,5 @@ next-env.d.ts
 
 # Local AI agent instructions
 /.agents/
+
+/.Agents.md/
