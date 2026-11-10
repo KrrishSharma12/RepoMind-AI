@@ -1,4 +1,3 @@
-::: {align="center"}
 # 🧠 RepoMind AI
 
 ### Chat with your codebase. Review every pull request with context.
