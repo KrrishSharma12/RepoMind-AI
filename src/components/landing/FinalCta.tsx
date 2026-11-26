@@ -14,7 +14,7 @@ export function FinalCta() {
         <div className="mt-8 flex justify-center">
           <GithubButton>Get Started with GitHub</GithubButton>
         </div>
-        <p className="mt-3 text-sm text-muted">GitHub sign-in is not available yet. RepoMind AI is in development.</p>
+        {/* <p className="mt-3 text-sm text-muted">GitHub sign-in is not available yet. RepoMind AI is in development.</p> */}
       </GlassCard>
     </section>
   );

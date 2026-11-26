@@ -33,9 +33,9 @@ export function Hero() {
             </a>
           </div>
 
-          <p className="mt-4 max-w-md text-sm text-muted">
+          {/* <p className="mt-4 max-w-md text-sm text-muted">
             RepoMind AI is in development. This page previews what we are building, using sample data.
-          </p>
+          </p> */}
         </div>
 
         <div className="hero-in hero-in-delay min-w-0">
